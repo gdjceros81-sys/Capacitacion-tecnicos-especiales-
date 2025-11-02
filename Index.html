@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analizador de Log de Red Mesh</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-8">
+
+    <div class="max-w-4xl mx-auto bg-white rounded-lg shadow-lg overflow-hidden">
+        <header class="bg-blue-600 text-white p-6">
+            <h1 class="text-3xl font-bold text-center">Analizador de Log de Red Mesh</h1>
+            <p class="text-center mt-2 opacity-90">Sube un archivo de log para buscar cambios de AP (BSSID, SSID, WLAN).</p>
+        </header>
+
+        <main class="p-6">
+            <div id="dropzone" class="border-2 border-dashed border-gray-300 rounded-lg p-10 text-center cursor-pointer transition-colors duration-200 hover:border-blue-500 hover:bg-blue-50">
+                <p class="text-gray-500">Arrastra y suelta un archivo de log aquí o haz clic para seleccionarlo.</p>
+                <input type="file" id="fileInput" class="hidden" accept=".txt,.log">
+            </div>
+
+            <div id="loading" class="hidden mt-4 text-center text-blue-500">
+                <svg class="animate-spin h-5 w-5 mx-auto text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="mt-2">Analizando el archivo...</p>
+            </div>
+
+            <div id="results" class="hidden mt-6">
+                <h2 class="text-xl font-bold mb-4 text-gray-700">Resultados del Análisis</h2>
+                
+                <div id="stats" class="bg-gray-50 p-4 rounded-lg shadow-inner mb-4">
+                    <p class="text-sm text-gray-600">Líneas totales procesadas: <span id="totalLines" class="font-semibold">0</span></p>
+                    <p class="text-sm text-gray-600">Eventos de cambio de AP encontrados: <span id="eventCount" class="font-semibold">0</span></p>
+                    <p class="text-sm text-gray-600 mt-2 font-semibold">Las coincidencias de la búsqueda se muestran resaltadas en color verde.</p>
+                    <p class="text-sm text-gray-600 mt-2 font-semibold">Análisis realizado a las: <span id="analysisTime"></span></p>
+                    <p class="text-sm text-gray-600 mt-2 font-semibold">Última modificación del archivo: <span id="fileDate"></span></p>
+                </div>
+                
+                <button id="generateReportBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg mb-4 transition-colors duration-200">
+                    Generar Reporte PDF
+                </button>
+
+                <div class="overflow-x-auto rounded-lg shadow-sm">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">AP Anterior (BSSID/SSID)</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">AP Nuevo (BSSID/SSID)</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Potencia</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resultsTableBody" class="bg-white divide-y divide-gray-200">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div id="errorMessage" class="hidden mt-4 bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
+                <p class="font-bold">Error:</p>
+                <p id="errorText"></p>
+            </div>
+        </main>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const dropzone = document.getElementById('dropzone');
+            const fileInput = document.getElementById('fileInput');
+            const loading = document.getElementById('loading');
+            const resultsDiv = document.getElementById('results');
+            const resultsTableBody = document.getElementById('resultsTableBody');
+            const totalLinesSpan = document.getElementById('totalLines');
+            const eventCountSpan = document.getElementById('eventCount');
+            const errorMessageDiv = document.getElementById('errorMessage');
+            const errorTextSpan = document.getElementById('errorText');
+            const analysisTimeSpan = document.getElementById('analysisTime');
+            const fileDateSpan = document.getElementById('fileDate');
+            const generateReportBtn = document.getElementById('generateReportBtn');
+
+            // --- Manejadores de eventos ---
+            dropzone.addEventListener('click', () => fileInput.click());
+            dropzone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropzone.classList.add('border-blue-500', 'bg-blue-50');
+            });
+            dropzone.addEventListener('dragleave', () => {
+                dropzone.classList.remove('border-blue-500', 'bg-blue-50');
+            });
+            dropzone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropzone.classList.remove('border-blue-500', 'bg-blue-50');
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    handleFile(files[0]);
+                }
+            });
+            fileInput.addEventListener('change', (e) => {
+                if (e.target.files.length > 0) {
+                    handleFile(e.target.files[0]);
+                }
+            });
+
+            // Listener para el botón de generación de reporte
+            generateReportBtn.addEventListener('click', () => {
+                generateReportPDF();
+            });
+
+            // --- Lógica del analizador de logs ---
+            const handleFile = (file) => {
+                if (!file.name.endsWith('.log') && !file.name.endsWith('.txt')) {
+                    showError('Solo se admiten archivos .txt o .log');
+                    return;
+                }
+                
+                showLoading(true);
+                resultsDiv.classList.add('hidden');
+                errorMessageDiv.classList.add('hidden');
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const logContent = e.target.result;
+                    analyzeLog(logContent);
+                };
+                reader.onerror = () => {
+                    showLoading(false);
+                    showError('Error al leer el archivo. Por favor, inténtalo de nuevo.');
+                };
+                reader.readAsText(file);
+
+                const fileModifiedDate = new Date(file.lastModified);
+                fileDateSpan.textContent = fileModifiedDate.toLocaleString();
+            };
+
+            const analyzeLog = (logContent) => {
+                const lines = logContent.split(/\r?\n/);
+                const relevantEvents = [];
+                const lastAPByClient = {};
+                const totalLines = lines.length;
+                const now = new Date();
+                analysisTimeSpan.textContent = now.toLocaleString();
+
+                lines.forEach((line) => {
+                    const bssidMatch = line.match(/BSSID:?\s*([a-f0-9:]{17})/i);
+                    const ssidMatch = line.match(/SSID:?\s*"([^"]+)"/i);
+                    const wlanMatch = line.match(/WLAN:?\s*(\S+)/i);
+                    const timestampMatch = line.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z)|(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})|(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})/);
+                    const powerMatch = line.match(/RSSI[:=\s]*(-?\d+)|power[:=\s]*(-?\d+)/i);
+                    
+                    if (wlanMatch) {
+                        const client = wlanMatch[1];
+                        
+                        const currentAP = {
+                            bssid: bssidMatch ? bssidMatch[1].toUpperCase() : null,
+                            ssid: ssidMatch ? ssidMatch[1] : null,
+                            timestamp: timestampMatch ? timestampMatch[0] : null,
+                            power: powerMatch ? (powerMatch[1] || powerMatch[2] || 'N/A') : 'N/A'
+                        };
+
+                        if (!currentAP.ssid || currentAP.bssid === null || currentAP.bssid === '00:00:00:00:00:00' || currentAP.timestamp === null) {
+                            return;
+                        }
+
+                        const previousAP = lastAPByClient[client];
+                        
+                        if (previousAP && previousAP.bssid !== currentAP.bssid && currentAP.bssid) {
+                            relevantEvents.push({
+                                time: currentAP.timestamp,
+                                previous: { bssid: previousAP.bssid, ssid: previousAP.ssid || 'Desconocido' },
+                                current: { bssid: currentAP.bssid, ssid: currentAP.ssid },
+                                power: { previous: previousAP.power, current: currentAP.power }
+                            });
+                        }
+                        
+                        lastAPByClient[client] = currentAP;
+                    }
+                });
+                
+                showResults(relevantEvents, totalLines);
+                showLoading(false);
+            };
+
+            const showResults = (events, totalLines) => {
+                totalLinesSpan.textContent = totalLines;
+                eventCountSpan.textContent = events.length;
+                resultsTableBody.innerHTML = '';
+                
+                if (events.length === 0) {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `<td colspan="3" class="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-500">No se encontraron eventos de cambio de AP.</td>`;
+                    resultsTableBody.appendChild(row);
+                } else {
+                    events.forEach(event => {
+                        const row = document.createElement('tr');
+                        row.classList.add('bg-green-200');
+                        row.innerHTML = `
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                BSSID: ${event.previous.bssid}<br>
+                                SSID: ${event.previous.ssid}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                BSSID: ${event.current.bssid}<br>
+                                SSID: ${event.current.ssid}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                Potencia: Antes: ${event.power.previous} dBm, Ahora: ${event.power.current} dBm
+                            </td>
+                        `;
+                        resultsTableBody.appendChild(row);
+                    });
+                }
+                resultsDiv.classList.remove('hidden');
+            };
+
+            const showLoading = (show) => {
+                if (show) {
+                    loading.classList.remove('hidden');
+                    dropzone.classList.add('pointer-events-none', 'opacity-50');
+                } else {
+                    loading.classList.add('hidden');
+                    dropzone.classList.remove('pointer-events-none', 'opacity-50');
+                }
+            };
+
+            const showError = (message) => {
+                errorTextSpan.textContent = message;
+                errorMessageDiv.classList.remove('hidden');
+            };
+
+            // --- Función para generar el PDF ---
+            const generateReportPDF = async () => {
+                // Ocultar el botón para que no aparezca en el PDF
+                generateReportBtn.style.display = 'none';
+
+                // Usamos html2canvas para renderizar la sección de resultados como una imagen
+                const canvas = await html2canvas(resultsDiv, {
+                    scale: 2, // Aumenta la resolución para mejor calidad
+                    backgroundColor: '#ffffff' // Asegura un fondo blanco
+                });
+
+                const imgData = canvas.toDataURL('image/png');
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF('p', 'mm', 'a4');
+                const imgProps = pdf.getImageProperties(imgData);
+                const pdfWidth = pdf.internal.pageSize.getWidth();
+                const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+                pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+                
+                // Volver a mostrar el botón
+                generateReportBtn.style.display = 'block';
+
+                // Guardar el archivo PDF
+                const fileName = `Reporte_Analisis_Red_Mesh_${new Date().toISOString().slice(0, 10)}.pdf`;
+                pdf.save(fileName);
+            };
+        });
+    </script>
+</body>
+</html>
