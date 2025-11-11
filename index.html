@@ -27,7 +27,7 @@
     <header class="bg-slate-800 shadow-md">
         <div class="container mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl">
             <div class="flex justify-between items-center h-16">
-                <h1 class="text-2xl font-bold text-white">Dashboard de Avance de Evaluaciones</h1>
+                <h1 class="text-2xl font-bold text-white">Avance de capacitación de redes mesh (Técnicos especiales):Despliegue nacional</h1>
                 <span class="text-sm font-medium text-slate-300">Resumen Ejecutivo</span>
             </div>
         </div>
@@ -777,16 +777,24 @@ ALVAREZ DIAZ EDUARDO	APROBADO	TLAJOMULCO	OCCIDENTE	TECNICO REPARADOR`;
                             SIN_EVALUACION: 0
                         };
                     }
-                    statsByRegion[region].total++;
+                    
+                    // --- LÓGICA CORREGIDA ---
+                    // Se quita el statsByRegion[region].total++ de aquí
+                    
                     if (evaluacion === 'APROBADO') {
                         statsByRegion[region].APROBADO++;
+                        statsByRegion[region].total++; // Se suma al total SÓLO si es una categoría válida
                     } else if (evaluacion === 'REPROBADO') {
                         statsByRegion[region].REPROBADO++;
+                        statsByRegion[region].total++; // Se suma al total SÓLO si es una categoría válida
                     } else if (evaluacion === 'EXTRAORDINARIO') {
                         statsByRegion[region].EXTRAORDINARIO++;
+                        statsByRegion[region].total++; // Se suma al total SÓLO si es una categoría válida
                     } else if (evaluacion === 'SIN EVALUACIÓN') {
                         statsByRegion[region].SIN_EVALUACION++;
+                        statsByRegion[region].total++; // Se suma al total SÓLO si es una categoría válida
                     }
+                    // Las filas con evaluacion '#N/D' u otra cosa ahora se ignoran del total
                 }
 
                 // --- Procesar por Sucursal ---
@@ -799,12 +807,16 @@ ALVAREZ DIAZ EDUARDO	APROBADO	TLAJOMULCO	OCCIDENTE	TECNICO REPARADOR`;
                             region: region // <-- IMPORTANTE: Vincular sucursal a región
                         };
                     }
-                    statsBySucursal[sucursal].total++;
                     
+                    // --- LÓGICA CORREGIDA ---
+                    // Se quita el statsBySucursal[sucursal].total++ de aquí
+
                     if (estatusEvaluado.includes(evaluacion)) {
                         statsBySucursal[sucursal].evaluados++;
+                        statsBySucursal[sucursal].total++; // Se suma al total SÓLO si es una categoría válida
                     } else if (evaluacion === 'SIN EVALUACIÓN') { // <-- AÑADIDO
                         statsBySucursal[sucursal].sin_evaluacion++;
+                        statsBySucursal[sucursal].total++; // Se suma al total SÓLO si es una categoría válida
                     }
                 }
             });
@@ -1219,6 +1231,7 @@ ALVAREZ DIAZ EDUARDO	APROBADO	TLAJOMULCO	OCCIDENTE	TECNICO REPARADOR`;
     </script>
 </body>
 </html>
+
 
 
 
