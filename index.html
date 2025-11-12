@@ -27,7 +27,7 @@
     <header class="bg-slate-800 shadow-md">
         <div class="container mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl">
             <div class="flex justify-between items-center h-16">
-                <h1 class="text-2xl font-bold text-white">Avance capacitación técnicos especiales (Instalación redes mesh)</h1>
+                <h1 class="text-2xl font-bold text-white">Dashboard de Avance de Evaluaciones</h1>
                 <span class="text-sm font-medium text-slate-300">Resumen Ejecutivo</span>
             </div>
         </div>
@@ -110,13 +110,15 @@
             <!-- Columna Lateral: Gráfico de Dona General -->
             <div class="bg-white p-6 rounded-xl shadow-md flex flex-col items-center">
                 <h2 class="text-xl font-semibold text-slate-800">Avance General</h2>
-                <div class="relative w-full max-w-[280px] mt-4">
+                <div id="kpi-chart-general-wrapper" class="relative w-full max-w-[280px] mt-4">
                      <canvas id="kpi-chart-general"></canvas>
                      <div id="kpi-porcentaje-general" class="absolute inset-0 flex items-center justify-center text-5xl font-bold text-slate-800">
                         ...
                      </div>
+                </div> <!-- <<< DIV DE CIERRE FALTANTE (AHORA CORREGIDO) -->
+                <div id="kpi-fraccion-general-wrapper" class="text-2xl font-semibold text-slate-600 mt-6">
+                    <span id="kpi-fraccion-general">...</span>
                 </div>
-                <div id="kpi-fraccion-general" class="text-2xl font-semibold text-slate-600 mt-6">...</div>
                 <span class="text-sm font-medium text-slate-500">Evaluados / Total</span>
             </div>
         </section>
@@ -181,8 +183,8 @@
             
             <!-- Pareto Sucursal -->
             <div class="bg-white p-6 rounded-xl shadow-md">
-                <h2 class="text-xl font-semibold mb-4 text-slate-800">Pareto de Pendientes (Top 20 Sucursales)</h2>
-                <p class="text-sm text-slate-500 mb-4">Las 20 sucursales con más técnicos pendientes.</p>
+                <h2 id="pareto-sucursal-title" class="text-xl font-semibold mb-4 text-slate-800">Pareto de Pendientes (Top 20 Sucursales)</h2>
+                <p id="pareto-sucursal-desc" class="text-sm text-slate-500 mb-4">Las 20 sucursales con más técnicos pendientes.</p>
                 <div class="relative h-[400px]">
                     <canvas id="paretoSucursalChart"></canvas>
                 </div>
@@ -193,6 +195,25 @@
     </main>
 
     <script>
+        // Paleta de colores para las 9 regiones
+        const REGION_COLORS = {
+            'BAJIO': '#3b82f6',     // blue-500
+            'CENTRO': '#10b981',    // emerald-500
+            'GOLFO': '#ef4444',     // red-500
+            'MICHOACAN': '#f59e0b', // amber-500
+            'NORTE': '#6366f1',     // indigo-500
+            'OCCIDENTE': '#84cc16', // lime-500
+            'PACIFICO': '#0ea5e9',  // sky-500
+            'PENINSULA': '#d946ef', // fuchsia-500
+            'SURESTE': '#f97316',   // orange-500
+            'default': '#6b7280'    // gray-500
+        };
+
+        // Función para obtener color
+        function getColor(region) {
+            return REGION_COLORS[region] || REGION_COLORS['default'];
+        }
+
         // Los datos crudos proporcionados por el usuario
         const rawData = `Técnicos Especiales	Evaluación	Sucursal	Region	Puesto
 ROSALES RAMIREZ SERGIO ALFONSO	SIN EVALUACIÓN	SAN MIGUEL DE ALLENDE	BAJIO	TECNICO REPARADOR
@@ -730,37 +751,21 @@ ALVAREZ DIAZ EDUARDO	APROBADO	TLAJOMULCO	OCCIDENTE	TECNICO REPARADOR`;
         let globalProcessedRegionData = [];
         let globalProcessedSucursalData = [];
         let regionBarChartInstance = null;
+        let paretoSucursalChartInstance = null; // <-- Añadido
+        let kpiDoughnutChartInstance = null; // <-- Añadido
+        let globalKPIs = {}; // <-- Añadido
         let currentRegionFilter = null;
         const estatusEvaluado = ["APROBADO", "REPROBADO", "EXTRAORDINARIO"];
-
-        // Paleta de colores para 9 regiones
-        const regionColors = {
-            'BAJIO': '#f87171', // red-400
-            'CENTRO': '#60a5fa', // blue-400
-            'GOLFO': '#34d399', // emerald-400
-            'MICHOACAN': '#facc15', // yellow-400
-            'NORTE': '#c084fc', // purple-400
-            'OCCIDENTE': '#a78bfa', // violet-400
-            'PACIFICO': '#22d3ee', // cyan-400
-            'PENINSULA': '#fb923c', // orange-400
-            'SURESTE': '#f472b6', // pink-400
-            'default': '#9ca3af' // gray-400
-        };
-
-        // Helper para obtener color (evita errores si una región no está en el mapa)
-        function getColor(region) {
-            return regionColors[region] || regionColors.default;
-        }
-
-        // Función para procesar los datos y construir el dashboard
+ 
+        // --- Función Principal de Procesamiento ---
         function procesarDatos() {
-            const filas = rawData.split('\n').slice(1); // Omitir cabecera
+            const filas = rawData.split('\n').slice(1); // Omitir encabezado
             const statsByRegion = {};
-            const statsBySucursal = {}; 
-            
+            const statsBySucursal = {};
+
             filas.forEach(fila => {
                 const columnas = fila.split('\t');
-                if (columnas.length < 5) return; // Omitir filas incompletas
+                if (columnas.length < 4) return; // Omitir filas incompletas
 
                 const evaluacion = columnas[1].trim();
                 const sucursal = columnas[2].trim(); 
@@ -848,12 +853,16 @@ ALVAREZ DIAZ EDUARDO	APROBADO	TLAJOMULCO	OCCIDENTE	TECNICO REPARADOR`;
             const totalPendientesGeneral = globalProcessedRegionData.reduce((acc, curr) => acc + curr.sin_evaluacion, 0);
             const porcentajeGeneral = (totalGeneral > 0) ? (totalEvaluadosGeneral / totalGeneral) * 100 : 0;
             
-            document.getElementById('kpi-porcentaje-general').innerText = `${porcentajeGeneral.toFixed(1)}%`;
-            document.getElementById('kpi-porcentaje-general-text').innerText = `${porcentajeGeneral.toFixed(1)}%`;
-            document.getElementById('kpi-fraccion-general').innerText = `${totalEvaluadosGeneral} / ${totalGeneral}`;
-            document.getElementById('kpi-total-tecnicos').innerText = totalGeneral;
-            document.getElementById('kpi-total-evaluados').innerText = totalEvaluadosGeneral;
-            document.getElementById('kpi-total-pendientes').innerText = totalPendientesGeneral;
+            // Guardar KPIs globales
+            globalKPIs = {
+                total: totalGeneral,
+                evaluados: totalEvaluadosGeneral,
+                sin_evaluacion: totalPendientesGeneral,
+                porcentaje: porcentajeGeneral
+            };
+
+            // Renderizar KPIs iniciales
+            updateKPIs(globalKPIs);
 
             // --- Rellenar Tabla de Desglose Región ---
             const tablaDesgloseBody = document.getElementById('tabla-desglose-body');
@@ -892,34 +901,13 @@ ALVAREZ DIAZ EDUARDO	APROBADO	TLAJOMULCO	OCCIDENTE	TECNICO REPARADOR`;
             renderTablaSucursal(currentRegionFilter);
 
             // --- Renderizar Gráficos Pareto ---
-            renderParetoRegion(globalProcessedRegionData, totalPendientesGeneral);
-            renderParetoSucursal(globalProcessedSucursalData, totalPendientesGeneral);
+            renderParetoRegion(globalProcessedRegionData, globalKPIs.sin_evaluacion);
+            // La llamada inicial para el pareto de sucursal
+            renderParetoSucursal(globalProcessedSucursalData, globalKPIs.sin_evaluacion, null); // null = global
 
 
             // --- Generar Gráfico KPI (Dona) ---
-            const ctxDoughnut = document.getElementById('kpi-chart-general').getContext('2d');
-            new Chart(ctxDoughnut, {
-                type: 'doughnut',
-                data: {
-                    datasets: [{
-                        data: [porcentajeGeneral, 100 - porcentajeGeneral],
-                        backgroundColor: [
-                            '#3b82f6', // blue-500
-                            '#e5e7eb'  // gray-200
-                        ],
-                        borderWidth: 0,
-                        borderRadius: 8,
-                    }]
-                },
-                options: {
-                    cutout: '80%',
-                    responsive: true,
-                    plugins: {
-                        tooltip: { enabled: false }
-                    },
-                    events: []
-                }
-            });
+            renderDoughnutChart(globalKPIs.porcentaje);
 
             // --- Generar Gráfico de Barras (Región) ---
             const ctxBar = document.getElementById('regionBarChart').getContext('2d');
@@ -949,6 +937,8 @@ ALVAREZ DIAZ EDUARDO	APROBADO	TLAJOMULCO	OCCIDENTE	TECNICO REPARADOR`;
                     // --- MANEJADOR DE CLIC ---
                     onClick: (event, elements) => {
                         let newFilter = null;
+                        let regionStats = null; // Para guardar los stats de la región
+                        
                         if (elements.length > 0) {
                             const i = elements[0].index;
                             // Asegurarse de que el índice está dentro de los límites
@@ -957,6 +947,8 @@ ALVAREZ DIAZ EDUARDO	APROBADO	TLAJOMULCO	OCCIDENTE	TECNICO REPARADOR`;
                                 // Alternar filtro: si se hace clic en la misma barra, se desactiva
                                 if (currentRegionFilter !== region) {
                                     newFilter = region;
+                                    // Encontrar los stats para esta región
+                                    regionStats = globalProcessedRegionData.find(r => r.region === newFilter);
                                 }
                             }
                         }
@@ -964,7 +956,7 @@ ALVAREZ DIAZ EDUARDO	APROBADO	TLAJOMULCO	OCCIDENTE	TECNICO REPARADOR`;
                         // Actualizar el filtro global
                         currentRegionFilter = newFilter;
                         
-                        // 1. Volver a renderizar la tabla de sucursales con el filtro
+                        // 1. Volver a renderizar la tabla de sucursales
                         renderTablaSucursal(currentRegionFilter);
                         
                         // 2. Actualizar los colores del gráfico de barras
@@ -978,6 +970,29 @@ ALVAREZ DIAZ EDUARDO	APROBADO	TLAJOMULCO	OCCIDENTE	TECNICO REPARADOR`;
                             regionBarChartInstance.data.datasets[0].backgroundColor = bgColors;
                             regionBarChartInstance.update();
                         }
+
+                        // --- NUEVAS ACCIONES ---
+
+                        // 3. Actualizar KPIs y Gráfico de Dona
+                        if (currentRegionFilter && regionStats) {
+                            updateKPIs(regionStats);
+                            renderDoughnutChart(regionStats.porcentaje);
+                        } else {
+                            updateKPIs(globalKPIs); // Volver a globales
+                            renderDoughnutChart(globalKPIs.porcentaje);
+                        }
+                        
+                        // 4. Actualizar Pareto de Sucursal
+                        let sucursalDataForPareto = globalProcessedSucursalData;
+                        let totalPendientesForPareto = globalKPIs.sin_evaluacion;
+                        
+                        if (currentRegionFilter && regionStats) {
+                            // Filtrar sucursales por la región seleccionada
+                            sucursalDataForPareto = globalProcessedSucursalData.filter(s => s.region === currentRegionFilter);
+                            totalPendientesForPareto = regionStats.sin_evaluacion;
+                        }
+                        
+                        renderParetoSucursal(sucursalDataForPareto, totalPendientesForPareto, currentRegionFilter);
                     },
                     // --- FIN DE MANEJADOR DE CLIC ---
                     plugins: {
@@ -1065,13 +1080,65 @@ ALVAREZ DIAZ EDUARDO	APROBADO	TLAJOMULCO	OCCIDENTE	TECNICO REPARADOR`;
 
         // --- Nuevas Funciones de Pareto ---
 
+        // Nueva: Actualizar KPIs dinámicamente
+        function updateKPIs(data) {
+            const porcentaje = data.porcentaje || 0;
+            document.getElementById('kpi-total-tecnicos').innerText = data.total;
+            document.getElementById('kpi-total-evaluados').innerText = data.evaluados;
+            document.getElementById('kpi-total-pendientes').innerText = data.sin_evaluacion;
+            document.getElementById('kpi-porcentaje-general-text').innerText = `${porcentaje.toFixed(1)}%`;
+            
+            // Actualizar también el texto del gráfico de dona
+            document.getElementById('kpi-porcentaje-general').innerText = `${porcentaje.toFixed(1)}%`;
+            document.getElementById('kpi-fraccion-general').innerText = `${data.evaluados} / ${data.total}`;
+        }
+
+        // Nueva: Renderizar Gráfico de Dona dinámicamente
+        function renderDoughnutChart(porcentaje) {
+            if (kpiDoughnutChartInstance) {
+                kpiDoughnutChartInstance.destroy();
+            }
+            const ctxDoughnut = document.getElementById('kpi-chart-general').getContext('2d');
+            kpiDoughnutChartInstance = new Chart(ctxDoughnut, {
+                type: 'doughnut',
+                data: {
+                    datasets: [{
+                        data: [porcentaje, 100 - porcentaje],
+                        backgroundColor: [
+                            '#3b82f6', // blue-500
+                            '#e5e7eb'  // gray-200
+                        ],
+                        borderWidth: 0,
+                        borderRadius: 8,
+                    }]
+                },
+                options: {
+                    cutout: '80%',
+                    responsive: true,
+                    plugins: {
+                        tooltip: { enabled: false }
+                    },
+                    events: []
+                }
+            });
+        }
+
+        // --- FUNCIÓN CORREGIDA ---
         function renderParetoRegion(regionData, totalPendientes) {
-            if (totalPendientes === 0) return; // Evitar división por cero
             const ctx = document.getElementById('paretoRegionChart').getContext('2d');
             
+            if (totalPendientes === 0) {
+                // Ocultar o limpiar el gráfico si no hay pendientes
+                ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                ctx.font = "16px Inter";
+                ctx.fillStyle = "#64748b"; // slate-500
+                ctx.textAlign = "center";
+                ctx.fillText("No hay técnicos pendientes.", ctx.canvas.width / 2, ctx.canvas.height / 2);
+                return; // No dibujar nada más
+            }
+
             // Sort by pendientes descending
-            const sortedData = [...regionData].sort((a, b) => b.sin_evaluacion - a.sin_evaluacion);
-            
+            const sortedData = [...regionData].filter(d => d.sin_evaluacion > 0).sort((a, b) => b.sin_evaluacion - a.sin_evaluacion);
             const labels = sortedData.map(d => d.region);
             const pendingCounts = sortedData.map(d => d.sin_evaluacion);
             const colors = sortedData.map(d => getColor(d.region));
@@ -1079,9 +1146,9 @@ ALVAREZ DIAZ EDUARDO	APROBADO	TLAJOMULCO	OCCIDENTE	TECNICO REPARADOR`;
             let cumulative = 0;
             const cumulativePct = sortedData.map(d => {
                 cumulative += d.sin_evaluacion;
-                return (cumulative / totalPendientes) * 100;
+                return (totalPendientes > 0) ? (cumulative / totalPendientes) * 100 : 0;
             });
-
+            
             new Chart(ctx, {
                 type: 'bar',
                 data: {
@@ -1133,29 +1200,63 @@ ALVAREZ DIAZ EDUARDO	APROBADO	TLAJOMULCO	OCCIDENTE	TECNICO REPARADOR`;
                 }
             });
         }
+        // --- FIN DE FUNCIÓN CORREGIDA ---
 
-        function renderParetoSucursal(sucursalData, totalPendientes) {
-            if (totalPendientes === 0) return; // Evitar división por cero
+        function renderParetoSucursal(sucursalData, totalPendientes, regionFilter = null) {
+            if (paretoSucursalChartInstance) {
+                paretoSucursalChartInstance.destroy(); // Destruir el gráfico anterior
+            }
             const ctx = document.getElementById('paretoSucursalChart').getContext('2d');
+            const titleEl = document.getElementById('pareto-sucursal-title');
+            const descEl = document.getElementById('pareto-sucursal-desc');
+            
+            if (totalPendientes === 0 && regionFilter) {
+                // Ocultar o limpiar el gráfico si no hay pendientes
+                titleEl.innerText = `Pareto de Pendientes (Sucursales de ${regionFilter})`;
+                descEl.innerText = 'No hay técnicos pendientes en esta región.';
+                // Limpiar el canvas por si acaso
+                ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                return; 
+            }
             
             // Sort by pendientes descending
-            const sortedData = [...sucursalData].sort((a, b) => b.sin_evaluacion - a.sin_evaluacion);
+            let sortedData = [...sucursalData].sort((a, b) => b.sin_evaluacion - a.sin_evaluacion);
             
-            // Limitar al Top 20
-            const top20Data = sortedData.slice(0, 20);
+            let dataForChart;
+            if (regionFilter) {
+                // Si hay un filtro de región, mostrar todas sus sucursales (ya está filtrada la data)
+                dataForChart = sortedData.filter(d => d.sin_evaluacion > 0); // Solo mostrar las que tienen pendientes
+                titleEl.innerText = `Pareto de Pendientes (Sucursales de ${regionFilter})`;
+                descEl.innerText = `Sucursales de ${regionFilter} ordenadas por técnicos pendientes.`;
+            } else {
+                // Vista global: Limitar al Top 20
+                dataForChart = sortedData.filter(d => d.sin_evaluacion > 0).slice(0, 20);
+                titleEl.innerText = 'Pareto de Pendientes (Top 20 Sucursales)';
+                descEl.innerText = 'Las 20 sucursales (global) con más técnicos pendientes.';
+            }
 
-            const labels = top20Data.map(d => d.sucursal);
-            const pendingCounts = top20Data.map(d => d.sin_evaluacion);
-            const colors = top20Data.map(d => getColor(d.region));
+            // Si después de filtrar (especialmente para región) no hay data, mostrar mensaje
+            if (dataForChart.length === 0) {
+                 titleEl.innerText = `Pareto de Pendientes (Sucursales de ${regionFilter})`;
+                 descEl.innerText = 'No hay técnicos pendientes en esta región.';
+                 ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                 return;
+            }
+
+            const labels = dataForChart.map(d => d.sucursal);
+            const pendingCounts = dataForChart.map(d => d.sin_evaluacion);
+            const colors = dataForChart.map(d => getColor(d.region));
 
             let cumulative = 0;
-            // Recalcular % acumulado (respecto al total general de pendientes)
-            const cumulativePct = top20Data.map(d => {
+            // OJO: El total para el % acumulado debe ser el total del subconjunto (o el global)
+            // 'totalPendientes' ya es el total correcto (sea global o de la región)
+            const cumulativePct = dataForChart.map(d => {
                 cumulative += d.sin_evaluacion;
-                return (cumulative / totalPendientes) * 100;
+                const pct = (totalPendientes > 0) ? (cumulative / totalPendientes) * 100 : 0;
+                return pct;
             });
 
-            new Chart(ctx, {
+            paretoSucursalChartInstance = new Chart(ctx, { // Asignar a la variable global
                 type: 'bar',
                 data: {
                     labels: labels,
@@ -1190,7 +1291,7 @@ ALVAREZ DIAZ EDUARDO	APROBADO	TLAJOMULCO	OCCIDENTE	TECNICO REPARADOR`;
                                 footer: function(tooltipItems) {
                                     // Añadir la región al tooltip
                                     const index = tooltipItems[0].dataIndex;
-                                    const region = top20Data[index].region;
+                                    const region = dataForChart[index].region; // Usar dataForChart
                                     return `Región: ${region}`;
                                 }
                             }
@@ -1231,6 +1332,7 @@ ALVAREZ DIAZ EDUARDO	APROBADO	TLAJOMULCO	OCCIDENTE	TECNICO REPARADOR`;
     </script>
 </body>
 </html>
+
 
 
 
